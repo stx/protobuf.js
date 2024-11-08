@@ -9,6 +9,42 @@ function missing(field) {
     return "missing required '" + field.name + "'";
 }
 
+function getFieldType(field) {
+
+  switch (field.type) {
+    case "double":
+      return 1;
+    case "float":
+      return 5;
+    case "int32":
+    case "uint32":
+    case "sint32":
+      return 0;
+    case "fixed32":
+    case "sfixed32":
+      return 5;
+    case "int64":
+    case "uint64":
+    case "sint64":
+      return 0;
+    case "fixed64":
+    case "sfixed64":
+      return 1;
+    case "bool":
+      return 0;
+  }
+
+  if (field.resolvedType instanceof Enum) {
+    return 0;
+  }
+
+  if (field.message) {
+    return 2;
+  }
+
+  throw new Error("Invalid type " + field.type);
+}
+
 /**
  * Generates a decoder specific to the specified message type.
  * @param {Type} mtype Message type
@@ -22,9 +58,9 @@ function decoder(mtype) {
     ("var c=l===undefined?r.len:r.pos+l,m=new this.ctor" + (mtype.fieldsArray.filter(function(field) { return field.map; }).length ? ",k,value" : ""))
     ("while(r.pos<c){")
         ("var t=r.uint32()");
-    if (mtype.group) gen
-        ("if((t&7)===4)")
-            ("break");
+    // if (mtype.group) gen
+    //     ("if((t&7)===4||t==0)")
+    //         ("break");
     gen
         ("switch(t>>>3){");
 
@@ -32,8 +68,43 @@ function decoder(mtype) {
     for (; i < /* initializes */ mtype.fieldsArray.length; ++i) {
         var field = mtype._fieldsArray[i].resolve(),
             type  = field.resolvedType instanceof Enum ? "int32" : field.type,
-            ref   = "m" + util.safeProp(field.name); gen
-            ("case %i: {", field.id);
+            ref   = "m" + util.safeProp(field.name),
+            tag = ((field.id << 3) | (getFieldType(field))) >>> 0;
+        //
+        // if (/VehicleData/.test(mtype) && field.id==11) {
+        //   console.log('field', field);
+        //   console.log('tag', tag);
+        //   console.log(field.type, types.basic[field.type], type);
+        //   console.log(Object.keys(field))
+        //   // process.exit(0)
+        // }
+
+        // if (/GuiSettings/.test(mtype) && field.id==106) {
+        //   console.log('field', field);
+        //   console.log('tag', tag);
+        //   console.log(field.type, getFieldType(field), type);
+        //   console.log(Object.keys(field))
+        //   // process.exit(0)
+        // }
+      //   const tag = ((field.number << 3) | basicWireType(field.type)) >>> 0;
+      //   const tagCheck = code`
+      //   if (tag !== ${tag}) {
+      //     break;
+      //   }
+      // `;
+        ;
+        gen
+            ("case %i: {", field.id)
+              ("if (t !== %i) {", tag)
+                (`console.log('tag ${field} ${field.type} ${getFieldType(field)}', t, %i, r.pos)`, tag)
+                (`debugger`)
+                ("break")
+              ("}");
+
+        // if (/LegacyVehicleState/.test(mtype) && field.id==55) {
+        //   console.log('field', field);
+        //   console.log('tag', tag);
+        // }
 
         // Map fields
         if (field.map) { gen
@@ -104,16 +175,23 @@ function decoder(mtype) {
         else gen
                 ("%s=r.%s()", ref, type);
         gen
-                ("break")
+                ("continue")
             ("}");
         // Unknown fields
-    } gen
-            ("default:")
-                ("r.skipType(t&7)")
-                ("break")
+    }
+    // gen
+    //         ("default:")
+    //             ("r.skipType(t&7)")
+    //             ("continue")
 
-        ("}")
-    ("}");
+    gen("}");
+
+    gen("if ((t&7) === 4 || t === 0) {")
+      ("break")
+    ("}")
+    ("r.skipType(t & 7)")
+
+  gen("}")
 
     // Field presence
     for (i = 0; i < mtype._fieldsArray.length; ++i) {
